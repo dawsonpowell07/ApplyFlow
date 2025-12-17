@@ -1,5 +1,7 @@
 from strands import Agent, tool
 from strands.models.gemini import GeminiModel
+from dotenv import load_dotenv
+import os
 from subagents.analytics_agent import job_analytics_assistant
 from subagents.application_management_agent import application_management_assistant
 from subagents.resume_agent import resume_assistant
@@ -9,9 +11,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 from strands_tools import http_request
-from settings import get_settings
+load_dotenv()
 
-settings = get_settings()
 # Define the orchestrator system prompt with clear tool selection guidance
 ORCHESTRATOR_PROMPT = """
 You are ApplyFlow Assistant, an intelligent job application management system.
@@ -31,7 +32,7 @@ the best possible assistance.
 # Initialize the model for the orchestrator
 model = GeminiModel(
     client_args={
-        "api_key": settings.GOOGLE_API_KEY,
+        "api_key": os.environ.get("GOOGLE_API_KEY", None),
     },
     model_id="gemini-2.5-flash-lite",
 )

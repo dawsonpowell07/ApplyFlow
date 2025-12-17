@@ -1,16 +1,17 @@
 from strands import Agent, tool
-from strands_tools import http_request
+from strands_tools import retrieve, http_request
 from strands.models.gemini import GeminiModel
-from settings import get_settings
+from dotenv import load_dotenv
+import os
 
-settings = get_settings()
+load_dotenv()
 
 
 def get_model():
     """Initialize and return the Gemini model for the agent."""
     return GeminiModel(
         client_args={
-            "api_key": settings.GOOGLE_API_KEY,
+            "api_key": os.environ.get("GOOGLE_API_KEY", None),
         },
         model_id="gemini-2.5-flash-lite",
     )
@@ -50,7 +51,7 @@ def resume_assistant(query: str) -> str:
         resume_agent = Agent(
             model=get_model(),
             system_prompt=RESUME_PROMPT,
-            tools=[http_request]
+            tools=[retrieve, http_request]
         )
 
         response = resume_agent(query)
