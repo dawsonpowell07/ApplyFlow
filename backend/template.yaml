@@ -1,0 +1,193 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Multi-Lambda HTTP API
+
+Globals:
+  Function:
+    Runtime: python3.14
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        APPLICATIONS_TABLE: !Ref ApplicationsTable
+        RESUMES_TABLE: !Ref ResumesTable
+
+Resources:
+  Api:
+    Type: AWS::Serverless::HttpApi
+
+  ResumesS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-resumes"
+      AccessControl: Private
+
+  ApplicationsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: applications
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: date_added
+          AttributeType: S
+        - AttributeName: resume_used_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: UserIndex
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+            - AttributeName: date_added
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: StatusIndex
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: date_added
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: ResumeIndex
+          KeySchema:
+            - AttributeName: resume_used_id
+              KeyType: HASH
+            - AttributeName: date_added
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+
+  ResumesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: resumes
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: UserIndex
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+
+  ApplicationsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./applications
+      Handler: lambda_function.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ApplicationsTable
+      Events:
+        CreateApplication:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /applications
+            Method: POST
+        GetApplications:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /applications
+            Method: GET
+        GetApplicationById:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /applications/{id}
+            Method: GET
+        UpdateApplication:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /applications/{id}
+            Method: PATCH
+        DeleteApplication:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /applications/{id}
+            Method: DELETE
+
+  ResumesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./resumes
+      Handler: lambda_function.lambda_handler
+      Environment:
+        Variables:
+          RESUMES_S3_BUCKET: !Ref ResumesS3Bucket
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ResumesTable
+        - S3CrudPolicy:
+            BucketName: !Ref ResumesS3Bucket
+      Events:
+        GenerateUploadUrl:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /resumes/upload-url
+            Method: POST
+        CreateResume:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /resumes
+            Method: POST
+        GetResumes:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /resumes
+            Method: GET
+        GetResumeById:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /resumes/{id}
+            Method: GET
+        UpdateResume:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /resumes/{id}
+            Method: PATCH
+
+  usersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./users
+      Handler: lambda_function.lambda_handler
+      Events:
+        usersProxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /users/{proxy+}
+            Method: ANY
+        usersRoot:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /users
+            Method: ANY
