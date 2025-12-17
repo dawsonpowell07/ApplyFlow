@@ -4,12 +4,16 @@ from subagents.analytics_agent import job_analytics_assistant
 from subagents.application_management_agent import application_management_assistant
 from subagents.resume_agent import resume_assistant
 from strands.session.file_session_manager import FileSessionManager
+from strands.session.s3_session_manager import S3SessionManager
+
 from strands.agent.conversation_manager import SlidingWindowConversationManager
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 from strands_tools import http_request
 from settings import get_settings
+import boto3
+
 
 settings = get_settings()
 # Define the orchestrator system prompt with clear tool selection guidance
@@ -44,6 +48,23 @@ conversation_manager = SlidingWindowConversationManager(
 
 app = FastAPI(title="ApplyFlow API")
 
+
+def get_session_manager(session_id: str):
+    """
+    Get the appropriate session manager based on settings.
+
+    Returns FileSessionManager in dev mode, S3SessionManager in production.
+    """
+    if settings.USE_S3_SESSION_STORAGE:
+        boto_session = boto3.Session(region_name=settings.AWS_REGION)
+        return S3SessionManager(
+            session_id=session_id,
+            bucket=settings.S3_SESSION_BUCKET,
+            boto_session=boto_session,
+        )
+    else:
+        return FileSessionManager(session_id=session_id)
+
 # System prompt for the ApplyFlow agent
 
 
@@ -61,7 +82,7 @@ async def run_agent(request: PromptRequest):
     if not prompt:
         raise HTTPException(status_code=400, detail="No prompt provided")
 
-    session_manager = FileSessionManager(session_id=thread_id)
+    session_manager = get_session_manager(session_id=thread_id)
 
     try:
         orchestrator = Agent(
@@ -94,7 +115,7 @@ async def run_agent_and_stream_response(prompt: str, thread_id: str):
         is_ready = True
         return "Ok - continue with your response!"
 
-    session_manager = FileSessionManager(session_id=thread_id)
+    session_manager = get_session_manager(session_id=thread_id)
 
     orchestrator = Agent(
         model=model,
@@ -139,7 +160,7 @@ async def run_agent_streaming(request: PromptRequest):
 # if __name__ == "__main__":
 #     # Test the orchestrator with different types of queries
 #     thread_id = "1"
-#     session_manager = FileSessionManager(session_id=thread_id)
+#     session_manager = get_session_manager(session_id=thread_id)
 #     orchestrator = Agent(
 #         model=model,
 #         system_prompt=ORCHESTRATOR_PROMPT,

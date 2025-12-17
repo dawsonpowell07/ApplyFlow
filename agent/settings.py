@@ -21,13 +21,14 @@ class Settings(BaseSettings):
     # Model Configuration
     GEMINI_MODEL_ID: str = "gemini-2.5-flash-lite"
 
-    # Conversation Manager Settings
-    CONVERSATION_WINDOW_SIZE: int = 20
-    SHOULD_TRUNCATE_RESULTS: bool = True
-
     # FastAPI Settings
     API_TITLE: str = "ApplyFlow API"
     API_VERSION: str = "1.0.0"
+
+    # Session Storage Settings
+    USE_S3_SESSION_STORAGE: bool = False  # Set to True for production
+    S3_SESSION_BUCKET: str = "applyflow-session-storage"
+    AWS_REGION: str = "us-east-1"
 
 
 @lru_cache()
