@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     # Model Configuration
     GEMINI_MODEL_ID: str = "gemini-2.5-flash-lite"
 
+    # Conversation Manager Settings
+    CONVERSATION_WINDOW_SIZE: int = 20
+    SHOULD_TRUNCATE_RESULTS: bool = True
+
     # FastAPI Settings
     API_TITLE: str = "ApplyFlow API"
     API_VERSION: str = "1.0.0"

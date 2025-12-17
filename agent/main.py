@@ -1,3 +1,6 @@
+import logging
+import boto3
+
 from strands import Agent, tool
 from strands.models.gemini import GeminiModel
 from subagents.analytics_agent import job_analytics_assistant
@@ -5,17 +8,26 @@ from subagents.application_management_agent import application_management_assist
 from subagents.resume_agent import resume_assistant
 from strands.session.file_session_manager import FileSessionManager
 from strands.session.s3_session_manager import S3SessionManager
-
 from strands.agent.conversation_manager import SlidingWindowConversationManager
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 from strands_tools import http_request
 from settings import get_settings
-import boto3
 
+# Configure logging
+logger = logging.getLogger("applyflow-agent")
+logger.setLevel(logging.INFO)
+
+logging.basicConfig(
+    format="%(levelname)s | %(name)s | %(message)s",
+    handlers=[logging.StreamHandler()]
+)
 
 settings = get_settings()
+
+logger.info("ApplyFlow Agent Service Starting")
+
 # Define the orchestrator system prompt with clear tool selection guidance
 ORCHESTRATOR_PROMPT = """
 You are ApplyFlow Assistant, an intelligent job application management system.
@@ -32,7 +44,7 @@ Always select the most appropriate tool based on the user's query to provide
 the best possible assistance.
 """
 
-# Initialize the model for the orchestrator
+
 model = GeminiModel(
     client_args={
         "api_key": settings.GOOGLE_API_KEY,
@@ -45,8 +57,6 @@ conversation_manager = SlidingWindowConversationManager(
     # Enable truncating the tool result when a message is too large for the model's context window
     should_truncate_results=True,
 )
-
-app = FastAPI(title="ApplyFlow API")
 
 
 def get_session_manager(session_id: str):
@@ -65,29 +75,22 @@ def get_session_manager(session_id: str):
     else:
         return FileSessionManager(session_id=session_id)
 
-# System prompt for the ApplyFlow agent
 
+# Define custom Agent class
+class ApplyFlowAgent(Agent):
+    def __init__(self, system_prompt, model, session_manager, session_id):
+        """
+        Initialize ApplyFlowAgent with session management.
 
-class PromptRequest(BaseModel):
-    prompt: str
-    thread_id: str
-
-
-@app.post('/agent')
-async def run_agent(request: PromptRequest):
-    """Endpoint to interact with the ApplyFlow agent."""
-    prompt = request.prompt
-    thread_id = request.thread_id
-
-    if not prompt:
-        raise HTTPException(status_code=400, detail="No prompt provided")
-
-    session_manager = get_session_manager(session_id=thread_id)
-
-    try:
-        orchestrator = Agent(
+        Args:
+            system_prompt: System prompt for the agent
+            model: The LLM model to use
+            session_manager: Session manager (FileSessionManager or S3SessionManager)
+            session_id: session/thread identifier
+        """
+        super().__init__(
+            system_prompt=system_prompt,
             model=model,
-            system_prompt=ORCHESTRATOR_PROMPT,
             tools=[
                 job_analytics_assistant,
                 application_management_assistant,
@@ -95,16 +98,50 @@ async def run_agent(request: PromptRequest):
                 http_request,
             ],
             session_manager=session_manager,
-            conversation_manager=conversation_manager
+            conversation_manager=conversation_manager,
         )
-        response = orchestrator(prompt)
-        content = str(response)
-        return PlainTextResponse(content=content)
+        self.session_id = session_id
+
+
+app = FastAPI(title="ApplyFlow API")
+
+
+class PromptRequest(BaseModel):
+    prompt: str
+    session_id: str
+
+
+@app.post('/agent')
+async def run_agent(request: PromptRequest):
+    """Endpoint to interact with the ApplyFlow agent."""
+    logger.info(f"POST /agent - session: {request.session_id}")
+
+    prompt = request.prompt
+    session_id = request.session_id
+
+    if not prompt:
+        raise HTTPException(status_code=400, detail="No prompt provided")
+
+    try:
+        session_manager = get_session_manager(session_id=session_id)
+        agent = ApplyFlowAgent(
+            model=model,
+            system_prompt=ORCHESTRATOR_PROMPT,
+            session_manager=session_manager,
+            session_id=session_id
+        )
+
+        response = agent(prompt)
+        return PlainTextResponse(content=str(response))
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(
+            f"Error in /agent (session {session_id}): {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def run_agent_and_stream_response(prompt: str, thread_id: str):
+async def run_agent_and_stream_response(prompt: str, session_id: str):
     """Stream agent responses back to the client."""
     is_ready = False
 
@@ -115,45 +152,89 @@ async def run_agent_and_stream_response(prompt: str, thread_id: str):
         is_ready = True
         return "Ok - continue with your response!"
 
-    session_manager = get_session_manager(session_id=thread_id)
+    try:
+        session_manager = get_session_manager(session_id=session_id)
+        orchestrator = Agent(
+            model=model,
+            system_prompt=ORCHESTRATOR_PROMPT,
+            tools=[
+                job_analytics_assistant,
+                application_management_assistant,
+                resume_assistant,
+                http_request,
+                ready_to_respond
+            ],
+            session_manager=session_manager,
+            conversation_manager=conversation_manager
+        )
 
-    orchestrator = Agent(
-        model=model,
-        system_prompt=ORCHESTRATOR_PROMPT,
-        tools=[
-            job_analytics_assistant,
-            application_management_assistant,
-            resume_assistant,
-            http_request,
-            ready_to_respond
-        ],
-        session_manager=session_manager,
-        conversation_manager=conversation_manager
-    )
+        async for item in orchestrator.stream_async(prompt):
+            if not is_ready:
+                continue
+            if "data" in item:
+                yield item['data']
 
-    async for item in orchestrator.stream_async(prompt):
-        if not is_ready:
-            continue
-        if "data" in item:
-            yield item['data']
+    except Exception as e:
+        logger.error(
+            f"Error in streaming (session {session_id}): {str(e)}", exc_info=True)
+        raise
 
 
 @app.post('/agent-streaming')
 async def run_agent_streaming(request: PromptRequest):
     """Endpoint to interact with the ApplyFlow agent with streaming responses."""
+    logger.info(f"POST /agent-streaming - session: {request.session_id}")
+
     try:
         prompt = request.prompt
-        thread_id = request.thread_id
+        session_id = request.session_id
 
         if not prompt:
             raise HTTPException(status_code=400, detail="No prompt provided")
 
         return StreamingResponse(
-            run_agent_and_stream_response(prompt, thread_id),
+            run_agent_and_stream_response(prompt, session_id),
             media_type="text/plain"
         )
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(
+            f"Error in /agent-streaming (session {request.session_id}): {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/get_conversations")
+def get_conversations(session_id: str):
+    """Get conversation history for a session."""
+    logger.info(f"GET /get_conversations - session: {session_id}")
+
+    try:
+        session_manager = get_session_manager(session_id=session_id)
+        agent = ApplyFlowAgent(
+            model=model,
+            system_prompt=ORCHESTRATOR_PROMPT,
+            session_manager=session_manager,
+            session_id=session_id
+        )
+
+        return {"messages": agent.messages}
+    except Exception as e:
+        logger.error(
+            f"Error in /get_conversations (session {session_id}): {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Error getting conversations: {str(e)}"
+        )
+
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint."""
+    return {
+        "status": "healthy",
+        "service": "ApplyFlow Agent",
+        "session_storage": "s3" if settings.USE_S3_SESSION_STORAGE else "local_file"
+    }
 
 
 # Example usage
@@ -161,21 +242,15 @@ async def run_agent_streaming(request: PromptRequest):
 #     # Test the orchestrator with different types of queries
 #     thread_id = "1"
 #     session_manager = get_session_manager(session_id=thread_id)
-#     orchestrator = Agent(
+#     agent = ApplyFlowAgent(
 #         model=model,
 #         system_prompt=ORCHESTRATOR_PROMPT,
-#         tools=[
-#             job_analytics_assistant,
-#             application_management_assistant,
-#             resume_assistant,
-#             http_request,
-#         ],
 #         session_manager=session_manager,
-#         conversation_manager=conversation_manager
+#         user_id=thread_id
 #     )
 #     while True:
 #         query = input("Query: ")
 #         if query == "q":
 #             quit()
-#         orchestrator(query)
+#         agent(query)
 #         print()
