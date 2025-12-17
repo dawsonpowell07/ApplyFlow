@@ -9,4 +9,5 @@ dependencies = [
     "strands-agents-builder>=0.1.10",
     "strands-agents-tools>=0.2.18",
     "strands-agents[gemini]>=1.20.0",
+    "pydantic-settings>=2.0.0",
 ]
