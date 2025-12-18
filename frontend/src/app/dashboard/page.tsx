@@ -1,10 +1,16 @@
+import { auth0 } from "@/lib/auth0";
+import { redirect } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ApplicationsTab from "@/components/dashboard/ApplicationsTab";
 import ResumesTab from "@/components/dashboard/ResumesTab";
 import ChatTab from "@/components/dashboard/ChatTab";
 
 export default async function DashboardPage() {
-  // TODO: Add authentication check when new auth system is implemented
+  const session = await auth0.getSession();
+
+  if (!session?.user) {
+    redirect('/');
+  }
 
   return (
     <div className="min-h-screen bg-white">
@@ -13,12 +19,13 @@ export default async function DashboardPage() {
           <div className="flex justify-between items-center">
             <h1 className="text-3xl font-bold text-white">ApplyFlow</h1>
             <div className="flex items-center gap-4">
-              <span className="text-sm text-white/90">User</span>
-              <button
+              <span className="text-sm text-white/90">{session.user.email}</span>
+              <a
+                href="/api/auth/logout"
                 className="text-sm text-white/90 hover:text-white transition-colors"
               >
                 Logout
-              </button>
+              </a>
             </div>
           </div>
         </div>
