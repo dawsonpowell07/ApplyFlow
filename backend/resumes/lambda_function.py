@@ -47,6 +47,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     try:
         logger.info(f"Received event: {json.dumps(event)}")
 
+        user_id = event['requestContext']['authorizer']['jwt']['claims']['sub']
+        logger.info(f"Authenticated User ID: {user_id}")
+
         http_method = event.get('requestContext', {}).get(
             'http', {}).get('method', '')
         path = event.get('rawPath', '')
@@ -61,14 +64,13 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if http_method == 'POST' and path == '/resumes/upload-url':
             logger.info("Routing to: Generate Pre-signed URL")
             file_name = data.get('file_name')
-            user_id = data.get('user_id')
-            if not file_name or not user_id:
-                return error_response("file_name and user_id are required")
+            if not file_name:
+                return error_response("file_name is required")
 
             resume_id = str(uuid.uuid4())
-            s3_key = f"{user_id}/{resume_id}/{file_name}"
+            s3_key = f"{user_id}/{resume_id}/{file_name}" # Use user_id from auth context
 
-            new_resume = Resume(id=resume_id, user_id=user_id,
+            new_resume = Resume(id=resume_id, user_id=user_id, # Use user_id from auth context
                                 file_name=file_name, s3_key=s3_key, upload_status="pending")
             db.create(new_resume)
 
@@ -94,9 +96,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # --- Route: GET /resumes ---
         elif http_method == 'GET' and path == '/resumes':
             logger.info("Routing to: Get Resumes by User")
-            user_id = query_parameters.get('user_id')
-            if not user_id:
-                return error_response("user_id query parameter is required")
+            # user_id is now taken from the auth context
 
             resumes = db.get_by_user_id(user_id)
             return success_response([r.to_dynamo_dict() for r in resumes])

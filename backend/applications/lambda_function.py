@@ -58,6 +58,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     try:
         logger.info(f"Received event: {json.dumps(event)}")
         
+        user_id = event['requestContext']['authorizer']['jwt']['claims']['sub']
+        logger.info(f"Authenticated User ID: {user_id}")
+
         db = ApplicationDynamoDB()
 
         http_method = event.get('requestContext', {}).get('http', {}).get('method', '')
@@ -77,8 +80,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         elif http_method == 'POST' and path == '/applications':
             logger.info("Routing to: CREATE - POST /applications")
-            if 'user_id' not in data:
-                return error_response('user_id is required', status_code=400)
+            data['user_id'] = user_id # Assign user_id from auth context
 
             status = data.get('status', 'applied')
             if status not in Application.VALID_STATUSES:
@@ -105,9 +107,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         elif http_method == 'GET' and path == '/applications':
             logger.info("Routing to: QUERY - GET /applications")
-            user_id = query_parameters.get('user_id')
-            if not user_id:
-                return error_response('user_id query parameter is required')
+            # user_id is now taken from the auth context
 
             status = query_parameters.get('status')
             job_title = query_parameters.get('job_title')
