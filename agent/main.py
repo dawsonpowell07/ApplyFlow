@@ -15,6 +15,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 from strands_tools import http_request
 from settings import get_settings
+from ag_ui_strands import StrandsAgent, create_strands_app
 
 # Configure logging
 logger = logging.getLogger("applyflow-agent")
@@ -85,178 +86,16 @@ def get_session_manager(session_id: str):
         return FileSessionManager(session_id=session_id)
 
 
-# Define custom Agent class
-class ApplyFlowAgent(Agent):
-    def __init__(self, system_prompt, model, session_manager, session_id):
-        """
-        Initialize ApplyFlowAgent with session management.
+agent = Agent(model=model, system_prompt=ORCHESTRATOR_PROMPT, tools=[
+              job_analytics_assistant, resume_assistant, application_management_assistant])
 
-        Args:
-            system_prompt: System prompt for the agent
-            model: The LLM model to use
-            session_manager: Session manager (FileSessionManager or S3SessionManager)
-            session_id: session/thread identifier
-        """
-        super().__init__(
-            system_prompt=system_prompt,
-            model=model,
-            tools=[
-                job_analytics_assistant,
-                application_management_assistant,
-                resume_assistant,
-                http_request,
-            ],
-            session_manager=session_manager,
-            conversation_manager=conversation_manager,
-        )
-        self.session_id = session_id
-
-
-app = FastAPI(title="ApplyFlow API")
-
-
-class PromptRequest(BaseModel):
-    prompt: str
-    session_id: str
-
-
-@app.post('/agent')
-async def run_agent(request: PromptRequest):
-    """Endpoint to interact with the ApplyFlow agent."""
-    logger.info(f"POST /agent - session: {request.session_id}")
-
-    prompt = request.prompt
-    session_id = request.session_id
-
-    if not prompt:
-        raise HTTPException(status_code=400, detail="No prompt provided")
-
-    try:
-        session_manager = get_session_manager(session_id=session_id)
-        agent = ApplyFlowAgent(
-            model=model,
-            system_prompt=ORCHESTRATOR_PROMPT,
-            session_manager=session_manager,
-            session_id=session_id
-        )
-
-        response = agent(prompt)
-        return PlainTextResponse(content=str(response))
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            f"Error in /agent (session {session_id}): {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-async def run_agent_and_stream_response(prompt: str, session_id: str):
-    """Stream agent responses back to the client."""
-    is_ready = False
-
-    @tool
-    def ready_to_respond():
-        """Indicate that the agent is ready to provide a response."""
-        nonlocal is_ready
-        is_ready = True
-        return "Ok - continue with your response!"
-
-    try:
-        session_manager = get_session_manager(session_id=session_id)
-        orchestrator = Agent(
-            model=model,
-            system_prompt=ORCHESTRATOR_PROMPT,
-            tools=[
-                job_analytics_assistant,
-                application_management_assistant,
-                resume_assistant],
-            session_manager=session_manager,
-            conversation_manager=conversation_manager
-        )
-
-        async for item in orchestrator.stream_async(prompt):
-            if not is_ready:
-                continue
-            if "data" in item:
-                yield item['data']
-
-    except Exception as e:
-        logger.error(
-            f"Error in streaming (session {session_id}): {str(e)}", exc_info=True)
-        raise
-
-
-@app.post('/agent-streaming')
-async def run_agent_streaming(request: PromptRequest):
-    """Endpoint to interact with the ApplyFlow agent with streaming responses."""
-    logger.info(f"POST /agent-streaming - session: {request.session_id}")
-
-    try:
-        prompt = request.prompt
-        session_id = request.session_id
-
-        if not prompt:
-            raise HTTPException(status_code=400, detail="No prompt provided")
-
-        return StreamingResponse(
-            run_agent_and_stream_response(prompt, session_id),
-            media_type="text/plain"
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            f"Error in /agent-streaming (session {request.session_id}): {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/get_conversations")
-def get_conversations(session_id: str):
-    """Get conversation history for a session."""
-    logger.info(f"GET /get_conversations - session: {session_id}")
-
-    try:
-        session_manager = get_session_manager(session_id=session_id)
-        agent = ApplyFlowAgent(
-            model=model,
-            system_prompt=ORCHESTRATOR_PROMPT,
-            session_manager=session_manager,
-            session_id=session_id
-        )
-
-        return {"messages": agent.messages}
-    except Exception as e:
-        logger.error(
-            f"Error in /get_conversations (session {session_id}): {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500, detail=f"Error getting conversations: {str(e)}"
-        )
-
-
-@app.get("/health")
-def health_check():
-    """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "service": "ApplyFlow Agent",
-        "session_storage": "s3" if settings.USE_S3_SESSION_STORAGE else "local_file"
-    }
-
-
-# Example usage
-# if __name__ == "__main__":
-#     # Test the orchestrator with different types of queries
-#     thread_id = "1"
-#     session_manager = get_session_manager(session_id=thread_id)
-#     agent = ApplyFlowAgent(
-#         model=model,
-#         system_prompt=ORCHESTRATOR_PROMPT,
-#         session_manager=session_manager,
-#         user_id=thread_id
-#     )
-#     while True:
-#         query = input("Query: ")
-#         if query == "q":
-#             quit()
-#         agent(query)
-#         print()
+# Wrap with AG-UI integration
+agui_agent = StrandsAgent(
+    agent=agent,
+    name="strands_agent",
+)
+# Create the FastAPI app
+app = create_strands_app(agui_agent, "/")
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
