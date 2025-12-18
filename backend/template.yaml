@@ -12,9 +12,27 @@ Globals:
         APPLICATIONS_TABLE: !Ref ApplicationsTable
         RESUMES_TABLE: !Ref ResumesTable
 
+Parameters:
+  Auth0Domain:
+    Type: String
+    Description: Auth0 domain (e.g., your-tenant.us.auth0.com)
+  Auth0Audience:
+    Type: String
+    Description: Auth0 API identifier/audience
+
 Resources:
   Api:
     Type: AWS::Serverless::HttpApi
+    Properties:
+      Auth:
+        Authorizers:
+          JwtAuthorizer:
+            IdentitySource: "$request.header.Authorization"
+            JwtConfiguration:
+              issuer: !Sub "https://${Auth0Domain}/"
+              audience:
+                - !Ref Auth0Audience
+        DefaultAuthorizer: JwtAuthorizer
 
   ResumesS3Bucket:
     Type: AWS::S3::Bucket

@@ -64,6 +64,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if http_method == 'POST' and path == '/resumes/upload-url':
             logger.info("Routing to: Generate Pre-signed URL")
             file_name = data.get('file_name')
+            content_type = data.get('content_type', 'application/octet-stream')
             if not file_name:
                 return error_response("file_name is required")
 
@@ -76,7 +77,14 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
             s3_client = boto3.client('s3')
             presigned_url = s3_client.generate_presigned_url(
-                'put_object', Params={'Bucket': S3_BUCKET, 'Key': s3_key}, ExpiresIn=3600)
+                'put_object',
+                Params={
+                    'Bucket': S3_BUCKET,
+                    'Key': s3_key,
+                    'ContentType': content_type
+                },
+                ExpiresIn=3600
+            )
 
             return success_response({"presigned_url": presigned_url, "resume_id": resume_id})
 
