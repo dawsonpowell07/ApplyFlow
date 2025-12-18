@@ -11,6 +11,7 @@ from strands.session.file_session_manager import FileSessionManager
 from strands.session.s3_session_manager import S3SessionManager
 from strands.agent.conversation_manager import SlidingWindowConversationManager
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 from strands_tools import http_request
@@ -114,6 +115,18 @@ class ApplyFlowAgent(Agent):
 
 app = FastAPI(title="ApplyFlow API")
 
+origins = [
+    "*"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 class PromptRequest(BaseModel):
     prompt: str
@@ -152,15 +165,6 @@ async def run_agent(request: PromptRequest):
 
 async def run_agent_and_stream_response(prompt: str, session_id: str):
     """Stream agent responses back to the client."""
-    is_ready = False
-
-    @tool
-    def ready_to_respond():
-        """Indicate that the agent is ready to provide a response."""
-        nonlocal is_ready
-        is_ready = True
-        return "Ok - continue with your response!"
-
     try:
         session_manager = get_session_manager(session_id=session_id)
         orchestrator = Agent(
@@ -175,8 +179,6 @@ async def run_agent_and_stream_response(prompt: str, session_id: str):
         )
 
         async for item in orchestrator.stream_async(prompt):
-            if not is_ready:
-                continue
             if "data" in item:
                 yield item['data']
 
