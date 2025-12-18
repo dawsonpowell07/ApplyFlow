@@ -4,13 +4,14 @@ import ResumeUpload from './ResumeUpload';
 import ResumeList from './ResumeList';
 import ApplicationForm from './ApplicationForm';
 import ApplicationsList from './ApplicationsList';
+import AgentChat from './AgentChat';
 import './Dashboard.css';
 
 function Dashboard() {
   const { user, logout } = useAuth0();
   const [resumeRefreshTrigger, setResumeRefreshTrigger] = useState(0);
   const [applicationRefreshTrigger, setApplicationRefreshTrigger] = useState(0);
-  const [activeTab, setActiveTab] = useState<'applications' | 'resumes'>('applications');
+  const [activeTab, setActiveTab] = useState<'applications' | 'resumes' | 'assistant'>('applications');
 
   const handleResumeUploadComplete = () => {
     setResumeRefreshTrigger((prev) => prev + 1);
@@ -54,6 +55,15 @@ function Dashboard() {
             </svg>
             Resumes
           </button>
+          <button
+            className={`tab-btn ${activeTab === 'assistant' ? 'active' : ''}`}
+            onClick={() => setActiveTab('assistant')}
+          >
+            <svg className="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+            </svg>
+            AI Assistant
+          </button>
         </div>
 
         {activeTab === 'applications' ? (
@@ -67,7 +77,7 @@ function Dashboard() {
               </div>
             </div>
           </div>
-        ) : (
+        ) : activeTab === 'resumes' ? (
           <div className="tab-content">
             <div className="resumes-section">
               <div className="section-card">
@@ -78,6 +88,10 @@ function Dashboard() {
                 <ResumeList refreshTrigger={resumeRefreshTrigger} />
               </div>
             </div>
+          </div>
+        ) : (
+          <div className="tab-content">
+            <AgentChat />
           </div>
         )}
       </div>
