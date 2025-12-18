@@ -208,3 +208,5 @@ __marimo__/
 .vscode
 notes.txt
 *.DS_Store
+CLAUDE.md
+GEMINI.md
