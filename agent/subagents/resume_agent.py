@@ -1,6 +1,8 @@
+from typing import Dict, Any
 from strands import Agent, tool
 from strands_tools import http_request
 from strands.models.gemini import GeminiModel
+from strands.models.openai import OpenAIModel
 from settings import get_settings
 
 settings = get_settings()
@@ -8,11 +10,18 @@ settings = get_settings()
 
 def get_model():
     """Initialize and return the Gemini model for the agent."""
-    return GeminiModel(
+    # return GeminiModel(
+    #     client_args={
+    #         "api_key": settings.GOOGLE_API_KEY,
+    #     },
+    #     model_id="gemini-2.5-flash-lite",
+    # )
+    return OpenAIModel(
         client_args={
-            "api_key": settings.GOOGLE_API_KEY,
+            "api_key":  settings.OPENAI_API_KEY,
         },
-        model_id="gemini-2.5-flash-lite",
+        # **model_config
+        model_id="gpt-5-mini",
     )
 
 
@@ -50,10 +59,40 @@ def resume_assistant(query: str) -> str:
         resume_agent = Agent(
             model=get_model(),
             system_prompt=RESUME_PROMPT,
-            tools=[http_request]
+            tools=[read_job_application_link, analyze_resume]
         )
 
         response = resume_agent(query)
         return str(response)
     except Exception as e:
         return f"Error in resume assistant: {str(e)}"
+
+
+@tool
+def read_job_application_link(job_link: str) -> Dict[str, Any]:
+    """
+    s reading a job application from a given link.
+    """
+    print(f": Reading job application from link: {job_link}")
+    return {
+        "link": job_link,
+        "job_title": " Software Engineer",
+        "company": " Corp",
+        "description": "This is a  job description for a software engineer at  Corp.",
+        "requirements": ["Python", "AWS", "Machine Learning"],
+    }
+
+
+@tool
+def analyze_resume(resume_text: str, job_description: str) -> Dict[str, Any]:
+    """
+    s analyzing a resume against a job description.
+    """
+    print(": Analyzing resume against job description.")
+    return {
+        "resume_analysis": {
+            "score": 85,
+            "feedback": "Resume is well-aligned with the job description. Consider adding more quantifiable achievements.",
+            "missing_keywords": ["Leadership", "Mentorship"],
+        },
+    }

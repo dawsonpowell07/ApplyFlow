@@ -3,6 +3,7 @@ import boto3
 
 from strands import Agent, tool
 from strands.models.gemini import GeminiModel
+from strands.models.openai import OpenAIModel
 from subagents.analytics_agent import job_analytics_assistant
 from subagents.application_management_agent import application_management_assistant
 from subagents.resume_agent import resume_assistant
@@ -45,11 +46,19 @@ the best possible assistance.
 """
 
 
-model = GeminiModel(
+# model = GeminiModel(
+#     client_args={
+#         "api_key": settings.GOOGLE_API_KEY,
+#     },
+#     model_id="gemini-2.5-flash-lite",
+# )
+
+model = OpenAIModel(
     client_args={
-        "api_key": settings.GOOGLE_API_KEY,
+        "api_key":  settings.OPENAI_API_KEY,
     },
-    model_id="gemini-2.5-flash-lite",
+    # **model_config
+    model_id="gpt-5-mini",
 )
 
 conversation_manager = SlidingWindowConversationManager(
@@ -160,10 +169,7 @@ async def run_agent_and_stream_response(prompt: str, session_id: str):
             tools=[
                 job_analytics_assistant,
                 application_management_assistant,
-                resume_assistant,
-                http_request,
-                ready_to_respond
-            ],
+                resume_assistant],
             session_manager=session_manager,
             conversation_manager=conversation_manager
         )
